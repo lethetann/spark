@@ -19,8 +19,8 @@ package org.apache.spark.sql
 
 import scala.util.Random
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Literal}
-import org.apache.spark.sql.catalyst.expressions.aggregate.Count
+import org.scalatest.Matchers.the
+
 import org.apache.spark.sql.execution.WholeStageCodegenExec
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
@@ -688,71 +688,43 @@ class DataFrameAggregateSuite extends QueryTest with SharedSQLContext {
     }
   }
 
-  test("SPARK-23907: regression functions") {
-    val emptyTableData = Seq.empty[(Double, Double)].toDF("a", "b")
-    val correlatedData = Seq[(Double, Double)]((2, 3), (3, 4), (7.5, 8.2), (10.3, 12))
-      .toDF("a", "b")
-    val correlatedDataWithNull = Seq[(java.lang.Double, java.lang.Double)](
-      (2.0, 3.0), (3.0, null), (7.5, 8.2), (10.3, 12.0)).toDF("a", "b")
-    checkAnswer(testData2.groupBy().agg(regr_count("a", "b")), Seq(Row(6)))
-    checkAnswer(testData3.groupBy().agg(regr_count("a", "b")), Seq(Row(1)))
-    checkAnswer(emptyTableData.groupBy().agg(regr_count("a", "b")), Seq(Row(0)))
+  test("SPARK-21896: Window functions inside aggregate functions") {
+    def checkWindowError(df: => DataFrame): Unit = {
+      val thrownException = the [AnalysisException] thrownBy {
+        df.queryExecution.analyzed
+      }
+      assert(thrownException.message.contains("not allowed to use a window function"))
+    }
 
-    checkAggregatesWithTol(testData2.groupBy().agg(regr_sxx("a", "b")), Row(1.5), absTol)
-    checkAggregatesWithTol(testData3.groupBy().agg(regr_sxx("a", "b")), Row(0.0), absTol)
-    checkAggregatesWithTol(emptyTableData.groupBy().agg(regr_sxx("a", "b")), Row(null), absTol)
-    checkAggregatesWithTol(testData2.groupBy().agg(regr_syy("b", "a")), Row(1.5), absTol)
-    checkAggregatesWithTol(testData3.groupBy().agg(regr_syy("b", "a")), Row(0.0), absTol)
-    checkAggregatesWithTol(emptyTableData.groupBy().agg(regr_syy("b", "a")), Row(null), absTol)
+    checkWindowError(testData2.select(min(avg('b).over(Window.partitionBy('a)))))
+    checkWindowError(testData2.agg(sum('b), max(rank().over(Window.orderBy('a)))))
+    checkWindowError(testData2.groupBy('a).agg(sum('b), max(rank().over(Window.orderBy('b)))))
+    checkWindowError(testData2.groupBy('a).agg(max(sum(sum('b)).over(Window.orderBy('a)))))
+    checkWindowError(
+      testData2.groupBy('a).agg(sum('b).as("s"), max(count("*").over())).where('s === 3))
+    checkAnswer(
+      testData2.groupBy('a).agg(max('b), sum('b).as("s"), count("*").over()).where('s === 3),
+      Row(1, 2, 3, 3) :: Row(2, 2, 3, 3) :: Row(3, 2, 3, 3) :: Nil)
 
-    checkAggregatesWithTol(testData2.groupBy().agg(regr_avgx("a", "b")), Row(1.5), absTol)
-    checkAggregatesWithTol(testData3.groupBy().agg(regr_avgx("a", "b")), Row(2.0), absTol)
-    checkAggregatesWithTol(emptyTableData.groupBy().agg(regr_avgx("a", "b")), Row(null), absTol)
-    checkAggregatesWithTol(testData2.groupBy().agg(regr_avgy("b", "a")), Row(1.5), absTol)
-    checkAggregatesWithTol(testData3.groupBy().agg(regr_avgy("b", "a")), Row(2.0), absTol)
-    checkAggregatesWithTol(emptyTableData.groupBy().agg(regr_avgy("b", "a")), Row(null), absTol)
+    checkWindowError(sql("SELECT MIN(AVG(b) OVER(PARTITION BY a)) FROM testData2"))
+    checkWindowError(sql("SELECT SUM(b), MAX(RANK() OVER(ORDER BY a)) FROM testData2"))
+    checkWindowError(sql("SELECT SUM(b), MAX(RANK() OVER(ORDER BY b)) FROM testData2 GROUP BY a"))
+    checkWindowError(sql("SELECT MAX(SUM(SUM(b)) OVER(ORDER BY a)) FROM testData2 GROUP BY a"))
+    checkWindowError(
+      sql("SELECT MAX(RANK() OVER(ORDER BY b)) FROM testData2 GROUP BY a HAVING SUM(b) = 3"))
+    checkAnswer(
+      sql("SELECT a, MAX(b), RANK() OVER(ORDER BY a) FROM testData2 GROUP BY a HAVING SUM(b) = 3"),
+      Row(1, 2, 1) :: Row(2, 2, 2) :: Row(3, 2, 3) :: Nil)
+  }
 
-    checkAggregatesWithTol(testData2.groupBy().agg(regr_sxy("a", "b")), Row(0.0), absTol)
-    checkAggregatesWithTol(testData3.groupBy().agg(regr_sxy("a", "b")), Row(0.0), absTol)
-    checkAggregatesWithTol(emptyTableData.groupBy().agg(regr_sxy("a", "b")), Row(null), absTol)
-
-    checkAggregatesWithTol(testData2.groupBy().agg(regr_slope("a", "b")), Row(0.0), absTol)
-    checkAggregatesWithTol(testData3.groupBy().agg(regr_slope("a", "b")), Row(null), absTol)
-    checkAggregatesWithTol(emptyTableData.groupBy().agg(regr_slope("a", "b")), Row(null), absTol)
-
-    checkAggregatesWithTol(testData2.groupBy().agg(regr_r2("a", "b")), Row(0.0), absTol)
-    checkAggregatesWithTol(testData3.groupBy().agg(regr_r2("a", "b")), Row(null), absTol)
-    checkAggregatesWithTol(emptyTableData.groupBy().agg(regr_r2("a", "b")), Row(null), absTol)
-
-    checkAggregatesWithTol(testData2.groupBy().agg(regr_intercept("a", "b")), Row(2.0), absTol)
-    checkAggregatesWithTol(testData3.groupBy().agg(regr_intercept("a", "b")), Row(null), absTol)
-    checkAggregatesWithTol(emptyTableData.groupBy().agg(regr_intercept("a", "b")),
-      Row(null), absTol)
-
-
-    checkAggregatesWithTol(correlatedData.groupBy().agg(
-      regr_count("a", "b"),
-      regr_avgx("a", "b"),
-      regr_avgy("a", "b"),
-      regr_sxx("a", "b"),
-      regr_syy("a", "b"),
-      regr_sxy("a", "b"),
-      regr_slope("a", "b"),
-      regr_r2("a", "b"),
-      regr_intercept("a", "b")),
-      Row(4, 6.8, 5.7, 51.28, 45.38, 48.06, 0.937207488, 0.992556013, -0.67301092),
-      absTol)
-    checkAggregatesWithTol(correlatedDataWithNull.groupBy().agg(
-      regr_count("a", "b"),
-      regr_avgx("a", "b"),
-      regr_avgy("a", "b"),
-      regr_sxx("a", "b"),
-      regr_syy("a", "b"),
-      regr_sxy("a", "b"),
-      regr_slope("a", "b"),
-      regr_r2("a", "b"),
-      regr_intercept("a", "b")),
-      Row(3, 7.73333333, 6.6, 40.82666666, 35.66, 37.98, 0.93027433, 0.99079694, -0.59412149),
-      absTol)
+  test("SPARK-24788: RelationalGroupedDataset.toString with unresolved exprs should not fail") {
+    // Checks if these raise no exception
+    assert(testData.groupBy('key).toString.contains(
+      "[grouping expressions: [key], value: [key: int, value: string], type: GroupBy]"))
+    assert(testData.groupBy(col("key")).toString.contains(
+      "[grouping expressions: [key], value: [key: int, value: string], type: GroupBy]"))
+    assert(testData.groupBy(current_date()).toString.contains(
+      "grouping expressions: [current_date(None)], value: [key: int, value: string], " +
+        "type: GroupBy]"))
   }
 }

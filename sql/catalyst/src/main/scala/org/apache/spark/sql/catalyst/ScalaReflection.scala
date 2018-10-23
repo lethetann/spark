@@ -19,8 +19,11 @@ package org.apache.spark.sql.catalyst
 
 import java.lang.reflect.Constructor
 
+import scala.util.Properties
+
 import org.apache.commons.lang3.reflect.ConstructorUtils
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.objects._
@@ -709,6 +712,8 @@ object ScalaReflection extends ScalaReflection {
   def attributesFor[T: TypeTag]: Seq[Attribute] = schemaFor[T] match {
     case Schema(s: StructType, _) =>
       s.toAttributes
+    case others =>
+      throw new UnsupportedOperationException(s"Attributes for type $others is not supported")
   }
 
   /** Returns a catalyst DataType and its nullability for the given Scala Type using reflection. */
@@ -798,7 +803,12 @@ object ScalaReflection extends ScalaReflection {
    * Whether the fields of the given type is defined entirely by its constructor parameters.
    */
   def definedByConstructorParams(tpe: Type): Boolean = cleanUpReflectionObjects {
-    tpe.dealias <:< localTypeOf[Product] || tpe.dealias <:< localTypeOf[DefinedByConstructorParams]
+    tpe.dealias match {
+      // `Option` is a `Product`, but we don't wanna treat `Option[Int]` as a struct type.
+      case t if t <:< localTypeOf[Option[_]] => definedByConstructorParams(t.typeArgs.head)
+      case _ => tpe.dealias <:< localTypeOf[Product] ||
+        tpe.dealias <:< localTypeOf[DefinedByConstructorParams]
+    }
   }
 
   private val javaKeywords = Set("abstract", "assert", "boolean", "break", "byte", "case", "catch",
@@ -872,7 +882,7 @@ object ScalaReflection extends ScalaReflection {
  * Support for generating catalyst schemas for scala objects.  Note that unlike its companion
  * object, this trait able to work in both the runtime and the compile time (macro) universe.
  */
-trait ScalaReflection {
+trait ScalaReflection extends Logging {
   /** The universe we work in (runtime or macro) */
   val universe: scala.reflect.api.Universe
 
@@ -926,12 +936,20 @@ trait ScalaReflection {
   }
 
   /**
-   * Returns classes of input parameters of scala function object.
+   * Returns the nullability of the input parameter types of the scala function object.
+   *
+   * Note that this only works with Scala 2.11, and the information returned may be inaccurate if
+   * used with a different Scala version.
    */
-  def getParameterTypes(func: AnyRef): Seq[Class[_]] = {
+  def getParameterTypeNullability(func: AnyRef): Seq[Boolean] = {
+    if (!Properties.versionString.contains("2.11")) {
+      logWarning(s"Scala ${Properties.versionString} cannot get type nullability correctly via " +
+        "reflection, thus Spark cannot add proper input null check for UDF. To avoid this " +
+        "problem, use the typed UDF interfaces instead.")
+    }
     val methods = func.getClass.getMethods.filter(m => m.getName == "apply" && !m.isBridge)
     assert(methods.length == 1)
-    methods.head.getParameterTypes
+    methods.head.getParameterTypes.map(!_.isPrimitive)
   }
 
   /**
