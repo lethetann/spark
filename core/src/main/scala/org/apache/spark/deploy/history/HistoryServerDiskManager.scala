@@ -27,6 +27,7 @@ import org.apache.commons.io.FileUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
+import org.apache.spark.internal.config.History._
 import org.apache.spark.status.KVUtils._
 import org.apache.spark.util.{Clock, Utils}
 import org.apache.spark.util.kvstore.KVStore
@@ -49,8 +50,6 @@ private class HistoryServerDiskManager(
     path: File,
     listing: KVStore,
     clock: Clock) extends Logging {
-
-  import config._
 
   private val appStoreDir = new File(path, "apps")
   if (!appStoreDir.isDirectory() && !appStoreDir.mkdir()) {
@@ -123,10 +122,12 @@ private class HistoryServerDiskManager(
    * being used so that it's not evicted when running out of designated space.
    */
   def openStore(appId: String, attemptId: Option[String]): Option[File] = {
+    var newSize: Long = 0
     val storePath = active.synchronized {
       val path = appStorePath(appId, attemptId)
       if (path.isDirectory()) {
-        active(appId -> attemptId) = sizeOf(path)
+        newSize = sizeOf(path)
+        active(appId -> attemptId) = newSize
         Some(path)
       } else {
         None
@@ -134,7 +135,7 @@ private class HistoryServerDiskManager(
     }
 
     storePath.foreach { path =>
-      updateAccessTime(appId, attemptId)
+      updateApplicationStoreInfo(appId, attemptId, newSize)
     }
 
     storePath
@@ -239,10 +240,11 @@ private class HistoryServerDiskManager(
     new File(appStoreDir, fileName)
   }
 
-  private def updateAccessTime(appId: String, attemptId: Option[String]): Unit = {
+  private def updateApplicationStoreInfo(
+      appId: String, attemptId: Option[String], newSize: Long): Unit = {
     val path = appStorePath(appId, attemptId)
-    val info = ApplicationStoreInfo(path.getAbsolutePath(), clock.getTimeMillis(), appId, attemptId,
-      sizeOf(path))
+    val info = ApplicationStoreInfo(path.getAbsolutePath(), clock.getTimeMillis(), appId,
+      attemptId, newSize)
     listing.write(info)
   }
 
@@ -298,7 +300,7 @@ private class HistoryServerDiskManager(
           s"exceeded ($current > $max)")
       }
 
-      updateAccessTime(appId, attemptId)
+      updateApplicationStoreInfo(appId, attemptId, newSize)
 
       active.synchronized {
         active(appId -> attemptId) = newSize
