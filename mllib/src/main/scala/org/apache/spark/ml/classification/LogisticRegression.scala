@@ -243,6 +243,10 @@ private[classification] trait LogisticRegressionParams extends ProbabilisticClas
   @Since("2.2.0")
   def getUpperBoundsOnIntercepts: Vector = $(upperBoundsOnIntercepts)
 
+  setDefault(regParam -> 0.0, elasticNetParam -> 0.0, maxIter -> 100, tol -> 1E-6,
+    fitIntercept -> true, family -> "auto", standardization -> true, threshold -> 0.5,
+    aggregationDepth -> 2, blockSize -> 1)
+
   protected def usingBoundConstrainedOptimization: Boolean = {
     isSet(lowerBoundsOnCoefficients) || isSet(upperBoundsOnCoefficients) ||
       isSet(lowerBoundsOnIntercepts) || isSet(upperBoundsOnIntercepts)
@@ -290,7 +294,6 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("1.2.0")
   def setRegParam(value: Double): this.type = set(regParam, value)
-  setDefault(regParam -> 0.0)
 
   /**
    * Set the ElasticNet mixing parameter.
@@ -306,7 +309,6 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("1.4.0")
   def setElasticNetParam(value: Double): this.type = set(elasticNetParam, value)
-  setDefault(elasticNetParam -> 0.0)
 
   /**
    * Set the maximum number of iterations.
@@ -316,7 +318,6 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("1.2.0")
   def setMaxIter(value: Int): this.type = set(maxIter, value)
-  setDefault(maxIter -> 100)
 
   /**
    * Set the convergence tolerance of iterations.
@@ -327,7 +328,6 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("1.4.0")
   def setTol(value: Double): this.type = set(tol, value)
-  setDefault(tol -> 1E-6)
 
   /**
    * Whether to fit an intercept term.
@@ -337,7 +337,6 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("1.4.0")
   def setFitIntercept(value: Boolean): this.type = set(fitIntercept, value)
-  setDefault(fitIntercept -> true)
 
   /**
    * Sets the value of param [[family]].
@@ -347,7 +346,6 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("2.1.0")
   def setFamily(value: String): this.type = set(family, value)
-  setDefault(family -> "auto")
 
   /**
    * Whether to standardize the training features before fitting the model.
@@ -361,11 +359,9 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("1.5.0")
   def setStandardization(value: Boolean): this.type = set(standardization, value)
-  setDefault(standardization -> true)
 
   @Since("1.5.0")
   override def setThreshold(value: Double): this.type = super.setThreshold(value)
-  setDefault(threshold -> 0.5)
 
   @Since("1.5.0")
   override def getThreshold: Double = super.getThreshold
@@ -396,7 +392,6 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("2.1.0")
   def setAggregationDepth(value: Int): this.type = set(aggregationDepth, value)
-  setDefault(aggregationDepth -> 2)
 
   /**
    * Set the lower bounds on coefficients if fitting under bound constrained optimization.
@@ -447,7 +442,6 @@ class LogisticRegression @Since("1.2.0") (
    */
   @Since("3.1.0")
   def setBlockSize(value: Int): this.type = set(blockSize, value)
-  setDefault(blockSize -> 1)
 
   private def assertBoundConstrainedOptimizationParamsValid(
       numCoefficientSets: Int,
@@ -1159,27 +1153,6 @@ class LogisticRegressionModel private[spark] (
   }
 
   /**
-   * If the probability and prediction columns are set, this method returns the current model,
-   * otherwise it generates new columns for them and sets them as columns on a new copy of
-   * the current model
-   */
-  private[classification] def findSummaryModel():
-      (LogisticRegressionModel, String, String) = {
-    val model = if ($(probabilityCol).isEmpty && $(predictionCol).isEmpty) {
-      copy(ParamMap.empty)
-        .setProbabilityCol("probability_" + java.util.UUID.randomUUID.toString)
-        .setPredictionCol("prediction_" + java.util.UUID.randomUUID.toString)
-    } else if ($(probabilityCol).isEmpty) {
-      copy(ParamMap.empty).setProbabilityCol("probability_" + java.util.UUID.randomUUID.toString)
-    } else if ($(predictionCol).isEmpty) {
-      copy(ParamMap.empty).setPredictionCol("prediction_" + java.util.UUID.randomUUID.toString)
-    } else {
-      this
-    }
-    (model, model.getProbabilityCol, model.getPredictionCol)
-  }
-
-  /**
    * Evaluates the model on a test dataset.
    *
    * @param dataset Test dataset to evaluate model on.
@@ -1451,7 +1424,7 @@ sealed trait BinaryLogisticRegressionTrainingSummary extends BinaryLogisticRegre
  *                      double.
  * @param labelCol field in "predictions" which gives the true label of each instance.
  * @param featuresCol field in "predictions" which gives the features of each instance as a vector.
- * @param weightCol field in "predictions" which gives the weight of each instance as a vector.
+ * @param weightCol field in "predictions" which gives the weight of each instance.
  * @param objectiveHistory objective function (scaled loss + regularization) at each iteration.
  */
 private class LogisticRegressionTrainingSummaryImpl(
@@ -1476,7 +1449,7 @@ private class LogisticRegressionTrainingSummaryImpl(
  *                      double.
  * @param labelCol field in "predictions" which gives the true label of each instance.
  * @param featuresCol field in "predictions" which gives the features of each instance as a vector.
- * @param weightCol field in "predictions" which gives the weight of each instance as a vector.
+ * @param weightCol field in "predictions" which gives the weight of each instance.
  */
 private class LogisticRegressionSummaryImpl(
     @transient override val predictions: DataFrame,
@@ -1497,7 +1470,7 @@ private class LogisticRegressionSummaryImpl(
  *                      double.
  * @param labelCol field in "predictions" which gives the true label of each instance.
  * @param featuresCol field in "predictions" which gives the features of each instance as a vector.
- * @param weightCol field in "predictions" which gives the weight of each instance as a vector.
+ * @param weightCol field in "predictions" which gives the weight of each instance.
  * @param objectiveHistory objective function (scaled loss + regularization) at each iteration.
  */
 private class BinaryLogisticRegressionTrainingSummaryImpl(
@@ -1522,7 +1495,7 @@ private class BinaryLogisticRegressionTrainingSummaryImpl(
  *                      each class as a double.
  * @param labelCol field in "predictions" which gives the true label of each instance.
  * @param featuresCol field in "predictions" which gives the features of each instance as a vector.
- * @param weightCol field in "predictions" which gives the weight of each instance as a vector.
+ * @param weightCol field in "predictions" which gives the weight of each instance.
  */
 private class BinaryLogisticRegressionSummaryImpl(
     predictions: DataFrame,
