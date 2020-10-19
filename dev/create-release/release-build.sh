@@ -276,7 +276,7 @@ if [[ "$1" == "package" ]]; then
   # list of packages to be built, so it's ok for things to be missing in BINARY_PKGS_EXTRA.
 
   # NOTE: Don't forget to update the valid combinations of distributions at
-  #   'python/pyspark.install.py' and 'python/docs/source/getting_started/installation.rst'
+  #   'python/pyspark/install.py' and 'python/docs/source/getting_started/install.rst'
   #   if you're changing them.
   declare -A BINARY_PKGS_ARGS
   BINARY_PKGS_ARGS["hadoop3.2"]="-Phadoop-3.2 $HIVE_PROFILES"
@@ -285,7 +285,6 @@ if [[ "$1" == "package" ]]; then
     if [[ $SPARK_VERSION < "3.0." ]]; then
       BINARY_PKGS_ARGS["hadoop2.6"]="-Phadoop-2.6 $HIVE_PROFILES"
     else
-      BINARY_PKGS_ARGS["hadoop2.7-hive1.2"]="-Phadoop-2.7 -Phive-1.2 $HIVE_PROFILES"
       BINARY_PKGS_ARGS["hadoop2.7"]="-Phadoop-2.7 $HIVE_PROFILES"
     fi
   fi
