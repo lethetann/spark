@@ -29,10 +29,12 @@ case class DropTableExec(
     catalog: TableCatalog,
     ident: Identifier,
     ifExists: Boolean,
-    purge: Boolean) extends V2CommandExec {
+    purge: Boolean,
+    invalidateCache: () => Unit) extends V2CommandExec {
 
   override def run(): Seq[InternalRow] = {
     if (catalog.tableExists(ident)) {
+      invalidateCache()
       catalog.dropTable(ident, purge)
     } else if (!ifExists) {
       throw new NoSuchTableException(ident)
