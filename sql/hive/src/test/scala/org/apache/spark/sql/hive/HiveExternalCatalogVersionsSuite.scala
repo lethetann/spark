@@ -27,7 +27,7 @@ import scala.util.control.NonFatal
 import org.apache.commons.lang3.{JavaVersion, SystemUtils}
 import org.apache.hadoop.conf.Configuration
 
-import org.apache.spark.{SecurityManager, SparkConf, TestUtils}
+import org.apache.spark.{SparkConf, TestUtils}
 import org.apache.spark.internal.config.MASTER_REST_SERVER_ENABLED
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
@@ -93,7 +93,11 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
       mirrors.distinct :+ "https://archive.apache.org/dist" :+ PROCESS_TABLES.releaseMirror
     logInfo(s"Trying to download Spark $version from $sites")
     for (site <- sites) {
-      val filename = s"spark-$version-bin-hadoop2.7.tgz"
+      val filename = if (version.startsWith("3")) {
+        s"spark-$version-bin-hadoop3.2.tgz"
+      } else {
+        s"spark-$version-bin-hadoop2.7.tgz"
+      }
       val url = s"$site/spark/spark-$version/$filename"
       logInfo(s"Downloading Spark $version from $url")
       try {
@@ -130,7 +134,6 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
     // if the caller passes the name of an existing file, we want doFetchFile to write over it with
     // the contents from the specified url.
     conf.set("spark.files.overwrite", "true")
-    val securityManager = new SecurityManager(conf)
     val hadoopConf = new Configuration
 
     val outDir = new File(targetDir)
@@ -139,7 +142,7 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
     }
 
     // propagate exceptions up to the caller of getFileFromUrl
-    Utils.doFetchFile(urlString, outDir, filename, conf, securityManager, hadoopConf)
+    Utils.doFetchFile(urlString, outDir, filename, conf, hadoopConf)
   }
 
   private def getStringFromUrl(urlString: String): String = {
