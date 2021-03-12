@@ -18,6 +18,7 @@
 package org.apache.spark.sql
 
 import java.sql.{Date, Timestamp}
+import java.time.{Duration, Period}
 import java.util.Locale
 
 import org.apache.hadoop.io.{LongWritable, Text}
@@ -153,6 +154,28 @@ class ColumnExpressionSuite extends QueryTest with SharedSparkSession {
 
   test("star qualified by table name") {
     checkAnswer(testData.as("testData").select($"testData.*"), testData.collect().toSeq)
+  }
+
+  test("SPARK-34199: star can be qualified by table name inside a non-count function") {
+    checkAnswer(
+      testData.as("testData").selectExpr("hash(testData.*)"),
+      testData.as("testData").selectExpr("hash(testData.key, testData.value)")
+    )
+  }
+
+  test("SPARK-34199: star cannot be qualified by table name inside a count function") {
+    val e = intercept[AnalysisException] {
+      testData.as("testData").selectExpr("count(testData.*)").collect()
+    }
+    assert(e.getMessage.contains(
+      "count(testData.*) is not allowed. Please use count(*) or expand the columns manually"))
+  }
+
+  test("SPARK-34199: table star can be qualified inside a count function with multiple arguments") {
+    checkAnswer(
+      testData.as("testData").selectExpr("count(testData.*, testData.key)"),
+      testData.as("testData").selectExpr("count(testData.key, testData.value, testData.key)")
+    )
   }
 
   test("+") {
@@ -2352,5 +2375,17 @@ class ColumnExpressionSuite extends QueryTest with SharedSparkSession {
     }
     assert(e2.getCause.isInstanceOf[RuntimeException])
     assert(e2.getCause.getMessage == "hello")
+  }
+
+  test("SPARK-34677: negate/add/subtract year-month and day-time intervals") {
+    import testImplicits._
+    val df = Seq((Period.ofMonths(10), Duration.ofDays(10), Period.ofMonths(1), Duration.ofDays(1)))
+      .toDF("year-month-A", "day-time-A", "year-month-B", "day-time-B")
+    val negatedDF = df.select(-$"year-month-A", -$"day-time-A")
+    checkAnswer(negatedDF, Row(Period.ofMonths(-10), Duration.ofDays(-10)))
+    val addDF = df.select($"year-month-A" + $"year-month-B", $"day-time-A" + $"day-time-B")
+    checkAnswer(addDF, Row(Period.ofMonths(11), Duration.ofDays(11)))
+    val subDF = df.select($"year-month-A" - $"year-month-B", $"day-time-A" - $"day-time-B")
+    checkAnswer(subDF, Row(Period.ofMonths(9), Duration.ofDays(9)))
   }
 }

@@ -224,9 +224,15 @@ private[spark] object Config extends Logging {
     ConfigBuilder("spark.kubernetes.executor.podNamePrefix")
       .doc("Prefix to use in front of the executor pod names.")
       .version("2.3.0")
-      .internal()
       .stringConf
       .createOptional
+
+  val KUBERNETES_EXECUTOR_DISABLE_CONFIGMAP =
+    ConfigBuilder("spark.kubernetes.executor.disableConfigMap")
+      .doc("If true, disable ConfigMap creation for executors.")
+      .version("3.2.0")
+      .booleanConf
+      .createWithDefault(false)
 
   val KUBERNETES_DRIVER_POD_FEATURE_STEPS =
     ConfigBuilder("spark.kubernetes.driver.pod.featureSteps")
@@ -266,7 +272,8 @@ private[spark] object Config extends Logging {
 
   val KUBERNETES_ALLOCATION_EXECUTOR_TIMEOUT =
     ConfigBuilder("spark.kubernetes.allocation.executor.timeout")
-      .doc("Time to wait before considering a pending executor timedout.")
+      .doc("Time to wait before a newly created executor POD request, which does not reached " +
+        "the POD pending state yet, considered timedout and will be deleted.")
       .version("3.1.0")
       .timeConf(TimeUnit.MILLISECONDS)
       .checkValue(value => value > 0, "Allocation executor timeout must be a positive time value.")
@@ -476,6 +483,17 @@ private[spark] object Config extends Logging {
       .version("3.1.0")
       .booleanConf
       .createWithDefault(false)
+
+  val KUBERNETES_EXECUTOR_MISSING_POD_DETECT_DELTA =
+    ConfigBuilder("spark.kubernetes.executor.missingPodDetectDelta")
+      .doc("When a registered executor's POD is missing from the Kubernetes API server's polled " +
+        "list of PODs then this delta time is taken as the accepted time difference between the " +
+        "registration time and the time of the polling. After this time the POD is considered " +
+        "missing from the cluster and the executor will be removed.")
+      .version("3.1.1")
+      .timeConf(TimeUnit.MILLISECONDS)
+      .checkValue(delay => delay > 0, "delay must be a positive time value")
+      .createWithDefaultString("30s")
 
   val KUBERNETES_DRIVER_LABEL_PREFIX = "spark.kubernetes.driver.label."
   val KUBERNETES_DRIVER_ANNOTATION_PREFIX = "spark.kubernetes.driver.annotation."
